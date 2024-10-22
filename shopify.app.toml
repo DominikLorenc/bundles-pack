@@ -1,0 +1,24 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "e71d528eafee3fa45153dd61ab2b0032"
+name = "bundle-cart-transform-test"
+handle = "bundle-cart-transform-test"
+application_url = "https://example.com/"
+embedded = true
+
+[build]
+dev_store_url = "dominshops.myshopify.com"
+include_config_on_deploy = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_cart_transforms"
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[webhooks]
+api_version = "2024-10"
+
+[pos]
+embedded = false

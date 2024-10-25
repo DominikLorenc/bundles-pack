@@ -4,117 +4,108 @@ const NO_CHANGES: FunctionResult = {
   operations: [],
 };
 
-// Function to calculate the discount and apply price adjustments
 export const run = (input: RunInput): FunctionResult => {
-  // Function to apply discount based on the discount percentage
-  const applyDiscount = (
-    lineItem: (typeof input.cart.lines)[0],
-    discountPercentage: string | null,
-    basePrice: number,
-    cartTransformOperations: CartOperation[]
-  ) => {
-    const discountAmount = (basePrice * Number(discountPercentage)) / 100; // Calculate the discount amount
-    const newPrice = basePrice - discountAmount; // Calculate the new price after discount
+  // Group cart lines by bundle ID with relevant product details
+  const groupedItems: Record<
+    string,
+    {
+      id: string;
+      quantity: number;
+      twoPackDiscount?: string | null;
+      threePackDiscount?: string | null;
+      variantId?: string;
+      productId?: string;
+    }[]
+  > = {};
 
-    cartTransformOperations.push({
-      update: {
-        cartLineId: lineItem.id,
-        price: {
-          adjustment: {
-            fixedPricePerUnit: {
-              amount: newPrice.toString(), // Apply the discounted price
-            },
-          },
-        },
-      },
-    });
-  };
+  input.cart.lines.forEach((line) => {
+    const bundleID = line.bundleID?.value;
+    if (bundleID && "product" in line.merchandise) {
+      const merchandise = line.merchandise;
 
-  // Function to apply the base price if no discount is applicable
-  const applyBasePrice = (
-    lineItem: (typeof input.cart.lines)[0],
-    basePrice: number,
-    cartTransformOperations: CartOperation[]
-  ) => {
-    cartTransformOperations.push({
-      update: {
-        cartLineId: lineItem.id,
-        price: {
-          adjustment: {
-            fixedPricePerUnit: {
-              amount: basePrice.toString(), // Set the base price without discount
-            },
-          },
-        },
-      },
-    });
-  };
-
-  // Reduce the cart lines to gather products with pack discounts
-  const packProductsWithQuantity = input.cart.lines.reduce((acc, lineItem) => {
-    if ("product" in lineItem.merchandise) {
-      const threePackDiscount =
-        lineItem.merchandise.product?.threePackPrice?.value ?? null; // Contains the discount percentage for 3-pack
-      const twoPackDiscount =
-        lineItem.merchandise.product?.twoPackPrice?.value ?? null; // Contains the discount percentage for 2-pack
-      const isBundle = lineItem.bundleItem?.value === "Yes"; // Check if the product is a bundle
-
-      // If there are any discounts for the product, accumulate the quantity
-      if (isBundle && (twoPackDiscount || threePackDiscount)) {
-        const prevQuantity =
-          acc[lineItem.merchandise.product.id]?.quantity ?? 0;
-        acc[lineItem.merchandise.product.id] = {
-          quantity: prevQuantity + lineItem.quantity,
-          twoPackDiscount,
-          threePackDiscount,
-          discountApplied: 0, // Track how much discount has been applied
-        };
+      // Initialize array if it doesn't exist
+      if (!groupedItems[bundleID]) {
+        groupedItems[bundleID] = [];
       }
-    }
-    return acc;
-  }, {} as Record<string, { quantity: number; twoPackDiscount: string | null; threePackDiscount: string | null; discountApplied: number }>);
 
-  const cartTransformOperations: CartOperation[] = [];
-
-  // Iterate over the cart lines to apply discounts
-  input.cart.lines.forEach((lineItem) => {
-    if ("product" in lineItem.merchandise) {
-      const packProduct =
-        packProductsWithQuantity[lineItem.merchandise.product.id];
-
-      if (packProduct) {
-        const { quantity, twoPackDiscount, threePackDiscount } = packProduct;
-        const basePrice = Number(lineItem.cost.amountPerQuantity.amount); // Base price of the product
-
-        // Apply discount for 3-Pack if quantity equals 3
-        if (quantity === 3 && threePackDiscount) {
-          applyDiscount(
-            lineItem,
-            threePackDiscount,
-            basePrice,
-            cartTransformOperations
-          );
-          return;
-        }
-
-        // Apply discount for 2-Pack if quantity equals 2
-        if (quantity === 2 && twoPackDiscount) {
-          applyDiscount(
-            lineItem,
-            twoPackDiscount,
-            basePrice,
-            cartTransformOperations
-          );
-          return;
-        }
-
-        // If quantity is less than 2 or greater than 3, set to base price
-        applyBasePrice(lineItem, basePrice, cartTransformOperations);
-      }
+      groupedItems[bundleID].push({
+        id: line.id,
+        quantity: line.quantity,
+        twoPackDiscount: merchandise.product.twoPackPrice?.value ?? null,
+        threePackDiscount: merchandise.product.threePackPrice?.value ?? null,
+        variantId: merchandise.id,
+        productId: merchandise.product.id,
+      });
     }
   });
 
-  return cartTransformOperations.length > 0
-    ? { operations: cartTransformOperations }
-    : NO_CHANGES;
+  const createBundleOperation = (
+    group: (typeof groupedItems)[string],
+    bundleSize: number,
+    discount: string | null,
+    title: string,
+    bundleType: string
+  ): CartOperation | undefined => {
+    if (group.length > 0 && discount) {
+      const productId = group[0].productId?.split("/").pop() ?? "";
+      const variantIds = group.flatMap(({ variantId, quantity }) =>
+        new Array(quantity).fill(variantId?.split("/").pop() ?? "")
+      );
+
+      return {
+        merge: {
+          cartLines: group.map(({ id, quantity }) => ({
+            cartLineId: id,
+            quantity,
+          })),
+          parentVariantId: "gid://shopify/ProductVariant/45905180426478",
+          title,
+          price: {
+            percentageDecrease: {
+              value: discount,
+            },
+          },
+          attributes: [
+            { key: "_bundleType", value: bundleType },
+            { key: "_variantId", value: JSON.stringify(variantIds) },
+            { key: "_productId", value: productId },
+          ],
+        },
+      };
+    }
+    return undefined;
+  };
+
+  const operations: CartOperation[] = Object.values(groupedItems)
+    .map((group) => {
+      const groupTotalQuantity = group.reduce(
+        (acc, { quantity }) => acc + quantity,
+        0
+      );
+
+      if (groupTotalQuantity === 2) {
+        return createBundleOperation(
+          group,
+          2,
+          group[0].twoPackDiscount ?? "0",
+          "2-Pack Bundle",
+          "2-pack"
+        );
+      }
+
+      if (groupTotalQuantity === 3) {
+        return createBundleOperation(
+          group,
+          3,
+          group[0].threePackDiscount ?? "0",
+          "3-Pack Bundle",
+          "3-pack"
+        );
+      }
+
+      return undefined;
+    })
+    .filter(Boolean) as CartOperation[];
+
+  return operations.length ? { operations } : NO_CHANGES;
 };

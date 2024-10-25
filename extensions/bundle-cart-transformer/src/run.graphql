@@ -8,7 +8,7 @@ query RunInput {
           amount
         }
       }
-      bundleItem: attribute(key: "_isBundleItem") {
+      bundleID: attribute(key: "_bundleID") {
         value
       }
       merchandise {

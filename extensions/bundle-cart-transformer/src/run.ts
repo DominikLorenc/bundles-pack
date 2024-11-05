@@ -58,22 +58,25 @@ export const run = (input: RunInput): FunctionResult => {
             cartLineId: id,
             quantity,
           })),
-          parentVariantId: "gid://shopify/ProductVariant/45905180426478",
-          title,
+          parentVariantId: "gid://shopify/ProductVariant/45912885493998",
           price: {
             percentageDecrease: {
               value: discount,
             },
           },
           attributes: [
-            { key: "_bundleType", value: bundleType },
+            {
+              key: "_bundleMessage",
+              value: `Bundle and save! ${discount}% OFF`,
+            },
             { key: "_variantId", value: JSON.stringify(variantIds) },
             { key: "_productId", value: productId },
+            { key: "_discount", value: discount },
           ],
         },
       };
     }
-    return undefined;
+    return;
   };
 
   const operations: CartOperation[] = Object.values(groupedItems)
@@ -103,7 +106,7 @@ export const run = (input: RunInput): FunctionResult => {
         );
       }
 
-      return undefined;
+      return;
     })
     .filter(Boolean) as CartOperation[];
 
